@@ -51,6 +51,28 @@ If the game's Unity build leaves out the GUI functions the menu needs, the log s
 
 ---
 
+## What works in Dominus Gladiatus (built-in rules)
+
+From version 1.3.0 the mod includes rules written from the game's own code (from a dump of the Steam version, which is a Mono build):
+
+| Multiplier | Game method | Notes |
+|---|---|---|
+| Money / Cost | `PlayerProfile.ModifyCoins` | Every coin change in the game. Gains get **Money**, spending/upkeep/theft gets **Cost**. Shop prices still show the full amount, and you need the full amount to buy, but you pay less. |
+| Damage / Defense | `Health.Reduce` | Arena damage. Which side a gladiator is on comes from the game's `Team` component (`PlayerTeam`, default `TeamA`). |
+| Healing | `Health.Increase`, `HelperGladiator.ModifyCurrentHealth` | Arena healing (yours only) and recovery in the ludus. |
+| Fatigue | `HelperGladiator.ModifyFatiguePoints` | Fatigue gained gets **Fatigue**; fatigue recovered gets **Stamina/fatigue recovery** (the game has no stamina). |
+| Injury & death | `HelperGladiator.AddPendingInjury`, `GetSuicideChanceFromInjuries`, `GetSuicideChanceFromMorale` | Fewer injury levels, and lower chances of suicide from injuries or low morale. |
+| Training | `HelperGladiator.CalculateTrainingValue`, `UISelectStartingConditions.GetStartingTrainingDays` | Training progress, and training days for your starting gladiator. |
+| Morale | `HelperGladiator.ModifyMorale` | Gains are multiplied and losses are divided. |
+| Durations | `LudusRoom….CalculateStayDurationInDaysForValidGladiator`, `EmployeeAbility.CreateAbilityChargeCooldown` | Days spent in the infirmary, quarters, temple, or pleasure house, and employee ability cooldowns. |
+
+Not connected (the game has nothing suitable yet): **Sell price** (sales already get the Money multiplier), **Max health**
+(use Defense: ×2 defense means twice the effective health), **Hit/crit/dodge chance**, **Stamina cost**, and **Fame** (crowd favor in this game is
+Liked/Neutral/Disliked, not a number).
+
+**Check your team once:** set Damage to 1 and Defense to 10 in the menu, then watch a fight. If *your* gladiators barely get hurt,
+everything's right. If the *enemies* barely get hurt, click **"Your arena team"** on the menu's Combat tab (or set `PlayerTeam = TeamB`).
+
 ## 1. Install
 
 1. **Find out which build the game is.** Open the game folder (Steam → right-click the game → *Manage → Browse local files*).
@@ -77,7 +99,7 @@ In the log you should see lines like:
 [Info: Dominus Multipliers] Hooked [Money] Void Ludus::AddGold(Int32 amount)  scales: amount  (rule *::AddGold)
 [Info: Dominus Multipliers] Hooked [Damage] Void Gladiator::TakeDamage(Single damage)  scales: damage, receiver=this  (rule *::TakeDamage)
 ...
-[Info: Dominus Multipliers] Dominus Multipliers 1.2.0: hooked 9 method(s). Damage x1.5, Defense x1.5, MaxHealth x1.5, ...
+[Info: Dominus Multipliers] Dominus Multipliers 1.3.0: hooked 9 method(s). Damage x1.5, Defense x1.5, MaxHealth x1.5, ...
 [Warning: Dominus Multipliers] Nothing was hooked for: CombatChance, Fatigue, Duration. Those multipliers do nothing until ...
 ```
 

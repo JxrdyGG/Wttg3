@@ -152,7 +152,9 @@ namespace DominusMultipliers
                 default:
                     if (!player.Value) return false; // never boost a rival's values
                     pos = m;
-                    if (def.Id == Category.Money) neg = cfg[Category.Cost].Multiplier.Value; // AddGold(-price) is a cost
+                    if (def.Id == Category.Money) neg = cfg[Category.Cost].Multiplier.Value;            // AddGold(-price) is a cost
+                    else if (def.Id == Category.Fatigue) neg = cfg[Category.Stamina].Multiplier.Value;  // negative fatigue = recovery
+                    else if (def.Id == Category.Morale) neg = m > 0 ? 1.0 / m : (double?)null;         // morale losses shrink
                     else if (def.OnlyGains != null && !def.OnlyGains.Value) neg = m;
                     break;
             }

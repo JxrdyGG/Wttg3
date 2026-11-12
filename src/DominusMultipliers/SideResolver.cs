@@ -18,6 +18,16 @@ namespace DominusMultipliers
         private static readonly List<Condition> Conditions = new List<Condition>();
         private static readonly HashSet<Type> Probed = new HashSet<Type>();
 
+        /// <summary>(Re)reads PlayerSideMembers, plus the built-in "@Team.Id=PlayerTeam" condition for the game's arena.</summary>
+        public static void Configure()
+        {
+            var c = Mod.Cfg;
+            var text = c.PlayerSideMembers.Value;
+            if (c.UseBuiltInGameRules.Value && !string.IsNullOrEmpty(c.PlayerTeam.Value.Trim()))
+                text += ";@Team.Id=" + c.PlayerTeam.Value.Trim();
+            Configure(text);
+        }
+
         public static void Configure(string text)
         {
             Conditions.Clear();
@@ -72,6 +82,8 @@ namespace DominusMultipliers
             sb.Append("Could not tell which side '").Append(type.FullName)
               .Append("' is on (none of PlayerSideMembers exist on it), so its damage/max health/combat chances are left unchanged. Its bool/enum members right now:");
             sb.Append(DescribeSideMembers(receiver, type));
+            var comps = DescribeComponents(receiver);
+            if (comps.Length > 0) sb.Append("\n  Components on the same GameObject: ").Append(comps);
             sb.Append("\n  -> add the right one to PlayerSideMembers, e.g. isPlayer  or  team=Player  (see README).");
             Mod.Log.LogWarning(sb.ToString());
         }
@@ -88,6 +100,22 @@ namespace DominusMultipliers
                     if (p.CanRead && p.GetIndexParameters().Length == 0 && Interesting(p.PropertyType)) Append(sb, p.Name, p.PropertyType, instance, p);
             }
             return sb.ToString();
+        }
+
+        private static string DescribeComponents(object obj)
+        {
+            try
+            {
+                var compType = obj.GetType();
+                while (compType != null && compType.FullName != "UnityEngine.Component") compType = compType.BaseType;
+                if (compType == null) return "";
+                var m = obj.GetType().GetMethod("GetComponents", new[] { typeof(Type) });
+                if (!(m?.Invoke(obj, new object[] { compType }) is Array arr)) return "";
+                var names = new List<string>();
+                foreach (var o in arr) if (o != null) names.Add(o.GetType().Name);
+                return string.Join(", ", names.ToArray());
+            }
+            catch { return ""; }
         }
 
         private static bool Interesting(Type t) => t == typeof(bool) || t.IsEnum;

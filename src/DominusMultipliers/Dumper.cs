@@ -91,8 +91,37 @@ namespace DominusMultipliers
                 sb.Append("  ").Append(t.FullName).AppendLine(members);
                 foreach (var e in EnumTypesOf(t)) sb.AppendLine($"      enum {e.Name} = {string.Join(", ", Enum.GetNames(e))}");
             }
+
+            sb.AppendLine();
+            sb.AppendLine("=== TYPE DETAILS (DumpTypeDetails setting) ===");
+            foreach (var name in Mod.Cfg.DumpTypeDetails.Value.Split(new[] { ';', ',' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                var wanted = name.Trim();
+                foreach (var t in types.Where(t => t.Name == wanted || t.FullName == wanted))
+                    AppendTypeDetails(sb, t);
+            }
             return sb.ToString();
         }
+
+        private static void AppendTypeDetails(StringBuilder sb, Type t)
+        {
+            const BindingFlags flags = BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly;
+            sb.AppendLine($"  {t.FullName} : {t.BaseType?.FullName}");
+            try
+            {
+                foreach (var f in t.GetFields(flags).Where(f => !f.Name.Contains("k__BackingField")))
+                    sb.AppendLine($"    field {(f.IsStatic ? "static " : "")}{TypeName(f.FieldType)} {f.Name}");
+                foreach (var p in t.GetProperties(flags))
+                    sb.AppendLine($"    prop  {TypeName(p.PropertyType)} {p.Name}");
+                foreach (var m in t.GetMethods(flags).Where(m => !m.IsSpecialName && !m.Name.StartsWith("<", StringComparison.Ordinal)))
+                    sb.AppendLine($"    {(Patcher.Bindings.ContainsKey(m) ? "*" : " ")}     {Short(m)}");
+            }
+            catch (Exception e) { sb.AppendLine("    (could not read members: " + e.Message + ")"); }
+            if (t.IsEnum) sb.AppendLine("    values: " + string.Join(", ", Enum.GetNames(t)));
+        }
+
+        private static string TypeName(Type t) =>
+            t.IsGenericType ? t.Name.Split('`')[0] + "<" + string.Join(", ", t.GetGenericArguments().Select(TypeName).ToArray()) + ">" : t.Name;
 
         private static IEnumerable<Type> EnumTypesOf(Type t)
         {
@@ -108,8 +137,8 @@ namespace DominusMultipliers
 
         private static string Short(MethodInfo m)
         {
-            var ps = string.Join(", ", m.GetParameters().Select(p => p.ParameterType.Name + " " + p.Name).ToArray());
-            return $"{(m.IsStatic ? "static " : "")}{m.ReturnType.Name} {m.Name}({ps})";
+            var ps = string.Join(", ", m.GetParameters().Select(p => TypeName(p.ParameterType) + " " + p.Name).ToArray());
+            return $"{(m.IsStatic ? "static " : "")}{TypeName(m.ReturnType)} {m.Name}({ps})";
         }
     }
 }

@@ -11,7 +11,7 @@ namespace DominusMultipliers
     {
         public const string Guid = "dominus.multipliers";
         public const string Name = "Dominus Multipliers";
-        public const string Version = "1.2.0";
+        public const string Version = "1.3.0";
 
         internal static ManualLogSource Log;
         internal static ModConfig Cfg;
@@ -23,10 +23,12 @@ namespace DominusMultipliers
             Log = log;
             File = config;
             Cfg = new ModConfig(config);
-            SideResolver.Configure(Cfg.PlayerSideMembers.Value);
+            SideResolver.Configure();
+            Cfg.PlayerTeam.SettingChanged += (s, e) => SideResolver.Configure();
 
             var harmony = new Harmony(Guid);
             assemblies = assemblies ?? GameAssemblies.Load(Cfg.Assemblies.Value);
+            GameAssemblies.Loaded = assemblies;
             int patched = Patcher.PatchAll(harmony, assemblies);
 
             var summary = new List<string>();

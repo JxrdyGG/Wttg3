@@ -17,6 +17,7 @@ namespace DominusMultipliers
         public string ParamSelector;   // name or index, for TargetKind.Parameter
         public string[] MemberPath;    // optional .a.b path inside the selected parameter
         public string SideSelector;    // null = instance (or first object param for static methods)
+        public bool BuiltIn;           // built-in game rule: precise, so ExcludeRules don't apply
 
         public static List<Rule> ParseList(string text)
         {

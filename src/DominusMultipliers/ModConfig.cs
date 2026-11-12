@@ -31,6 +31,8 @@ namespace DominusMultipliers
         public ConfigEntry<float> Multiplier;
         public ConfigEntry<string> Rules;
         public ConfigEntry<bool> OnlyGains;     // null = only positive values are ever scaled
+        public string BuiltInRules = "";        // Dominus Gladiatus-specific rules (see ApplyGameRules)
+        public CategoryDef Via;                 // this multiplier is applied through another category's hooks (e.g. Cost via Money)
         public string Name => Id.ToString();
     }
 
@@ -48,6 +50,9 @@ namespace DominusMultipliers
         public readonly ConfigEntry<string> MenuKey;
         public readonly ConfigEntry<float> MenuScale;
         public readonly ConfigEntry<bool> ShowStartupHint;
+        public readonly ConfigEntry<bool> UseBuiltInGameRules;
+        public readonly ConfigEntry<string> PlayerTeam;
+        public readonly ConfigEntry<string> DumpTypeDetails;
 
         public readonly List<CategoryDef> Categories = new List<CategoryDef>();
         private readonly CategoryDef[] _byId = new CategoryDef[System.Enum.GetValues(typeof(Category)).Length];
@@ -97,7 +102,7 @@ namespace DominusMultipliers
                 "*Wallet*::Remove;*Wallet*::Spend;*Wallet*::TrySpend;*Currency*::Remove;*Currency*::Spend;*Currency*::TrySpend;" +
                 "*Gold*::Remove;*Gold*::Spend;*Gold*::TrySpend;*Money*::Remove;*Money*::Spend;*Money*::TrySpend;*Treasury*::Spend;*Treasury*::Remove");
             Add(cfg, Category.SellPrice, Economy, "SellPriceMultiplier", 1.5f, SideMode.PlayerSupport, 2,
-                "Multiplies the sale value of gladiators/items you sell. Stacks with MoneyMultiplier if the sale goes through a money-gain method.",
+                "Multiplies the sale value of gladiators/items you sell. In Dominus Gladiatus sales are already boosted by MoneyMultiplier, so this isn't needed.",
                 "*::GetSellPrice@return;*::GetSellValue@return;*::GetSalePrice@return;*::GetSellingPrice@return;*::CalculateSellPrice@return;" +
                 "*::CalculateSellValue@return;*::GetResalePrice@return;*::GetResaleValue@return;*::GetSellCost@return");
 
@@ -111,7 +116,7 @@ namespace DominusMultipliers
                 new ConfigDescription("Damage taken by YOUR gladiators is divided by this (2 = half damage).",
                     new AcceptableValueRange<float>(0.01f, 1000f)));
             Add(cfg, Category.MaxHealth, Combat, "MaxHealthMultiplier", 1.5f, SideMode.PlayerStrict, 4,
-                "Multiplies the maximum health of YOUR gladiators.",
+                "Multiplies the maximum health of YOUR gladiators. Not available in Dominus Gladiatus yet; DefenseMultiplier has the same effect (x2 defense = twice the effective health).",
                 "*::GetMaxHealth@return;*::GetMaxHP@return;*::GetMaxHitPoints@return;*::GetMaximumHealth@return;" +
                 "*::CalculateMaxHealth@return;*::CalculateMaxHP@return;*::CalcMaxHealth@return;*::ComputeMaxHealth@return");
             Add(cfg, Category.CombatChance, Combat, "CombatChanceMultiplier", 1.25f, SideMode.PlayerStrict, 5,
@@ -130,7 +135,7 @@ namespace DominusMultipliers
                 "*::RegenHealth;*::RegenerateHealth;*::AddHP;*::RestoreHP;*::RecoverHP;*::Recover;" +
                 "*Health*::Add;*Health*::Restore;*Health*::Increase;*Health*::Heal");
             Add(cfg, Category.Stamina, Care, "StaminaRegenMultiplier", 2f, SideMode.PlayerSupport, 7,
-                "Multiplies stamina/energy your gladiators regain.",
+                "Multiplies stamina/energy your gladiators regain. In Dominus Gladiatus: how fast fatigue goes away.",
                 "*::AddStamina;*::RestoreStamina;*::RecoverStamina;*::GainStamina;*::RegenStamina;*::RegenerateStamina;*::IncreaseStamina;" +
                 "*::AddEnergy;*::RestoreEnergy;*::RecoverEnergy;*::GainEnergy;*::RegenEnergy;" +
                 "*Stamina*::Add;*Stamina*::Restore;*Stamina*::Recover;*Stamina*::Regen*;*Energy*::Add;*Energy*::Restore;*Energy*::Recover");
@@ -168,7 +173,7 @@ namespace DominusMultipliers
                 "*::AddFavor;*::AddFavour;*::AddHype;*::AddGlory;*::GainGlory;*::AddHonor;*::AddHonour;*::AddAppeal;*::AddSpectacle;" +
                 "*Fame*::Add;*Reputation*::Add;*Popularity*::Add;*Favor*::Add;*Favour*::Add;*Prestige*::Add");
             Add(cfg, Category.Morale, Progress, "MoraleMultiplier", 2f, SideMode.PlayerSupport, 12,
-                "Multiplies morale, loyalty, happiness and motivation your gladiators gain.",
+                "Multiplies morale, loyalty, happiness and motivation your gladiators gain. Built-in game rule: morale losses are divided by it.",
                 "*::AddMorale;*::IncreaseMorale;*::GainMorale;*::AddLoyalty;*::IncreaseLoyalty;*::GainLoyalty;*::AddHappiness;" +
                 "*::IncreaseHappiness;*::AddMotivation;*::IncreaseMotivation;*::AddMood;*::IncreaseMood;*::AddSatisfaction;" +
                 "*::AddObedience;*::IncreaseObedience;*::AddDiscipline;*::AddConfidence;*::IncreaseConfidence;*::AddTrust;" +
@@ -207,8 +212,47 @@ namespace DominusMultipliers
 
             WriteDump = cfg.Bind(Diag, "WriteDump", true,
                 "Write BepInEx/DominusMultipliers-dump.txt at startup: what got hooked plus candidate methods/members to use in rules.");
+            UseBuiltInGameRules = cfg.Bind(RulesSection, "UseBuiltInGameRules", true,
+                "Use the rules built into the mod for Dominus Gladiatus (PlayerProfile.ModifyCoins, Health.Reduce, HelperGladiator.ModifyMorale, ...) " +
+                "in addition to the *Rules lists above. They are listed in the dump file under HOOKED METHODS.");
+            PlayerTeam = cfg.Bind(RulesSection, "PlayerTeam", "TeamA",
+                "Which arena team is yours (the game's Team component: TeamA, TeamB, ...). If your gladiators take MORE damage instead of less, " +
+                "switch this to TeamB (also on the menu's Combat tab).");
+            DumpTypeDetails = cfg.Bind(Diag, "DumpTypeDetails",
+                "Health;Creature;Team;Damage;Healing;GladiatorTemplateData;GladiatorStatsData;PlayerProfile;HelperGladiator;ArenaCrowndManager;" +
+                "LudusRoomBase;TrainGladiatorsSystem;BasePower;Shield_GladiatorItem;GladiatorArmor;DamageSourceEventArgs",
+                "Types whose full member list (all fields, properties and methods) is written to the dump, to help add rules.");
             LogScaledCalls = cfg.Bind(Diag, "LogScaledCalls", false,
                 "Log the first few scaled calls of each hooked method (old -> new value) to the BepInEx console/LogOutput.log.");
+
+            ApplyGameRules();
+        }
+
+        /// <summary>
+        /// Rules for Dominus Gladiatus itself, taken from the game's code (a dump of the Steam release). They are kept out of
+        /// the editable *Rules settings so that existing config files pick them up, and can be switched off with UseBuiltInGameRules.
+        /// </summary>
+        private void ApplyGameRules()
+        {
+            // All coin changes go through PlayerProfile.ModifyCoins(delta): gains get MoneyMultiplier, spending (negative) CostMultiplier.
+            this[Category.Money].BuiltInRules = "PlayerProfile::ModifyCoins";
+            this[Category.Cost].Via = this[Category.Money];
+            // Arena combat: Health is the component that takes damage / healing; the side comes from the Team component (PlayerTeam).
+            this[Category.Damage].BuiltInRules = "Health::Reduce";
+            this[Category.Healing].BuiltInRules = "Health::Increase;HelperGladiator::ModifyCurrentHealth";
+            // Ludus: fatigue gains get FatigueMultiplier, fatigue recovery (negative) gets StaminaRegenMultiplier (the game has no stamina).
+            this[Category.Fatigue].BuiltInRules = "HelperGladiator::ModifyFatiguePoints";
+            this[Category.Stamina].Via = this[Category.Fatigue];
+            this[Category.Injury].BuiltInRules =
+                "HelperGladiator::AddPendingInjury@levelsToAdd;HelperGladiator::GetSuicideChanceFromInjuries@return;" +
+                "HelperGladiator::GetSuicideChanceFromMorale@return";
+            this[Category.Training].BuiltInRules =
+                "HelperGladiator::CalculateTrainingValue@return;UISelectStartingConditions::GetStartingTrainingDays@return";
+            // Morale gains get MoraleMultiplier, morale losses are divided by it.
+            this[Category.Morale].BuiltInRules = "HelperGladiator::ModifyMorale";
+            // Days spent in the infirmary/quarters/temple/pleasure house, and employee ability cooldowns.
+            this[Category.Duration].BuiltInRules =
+                "LudusRoom*::CalculateStayDurationInDaysForValidGladiator@return;EmployeeAbility::CreateAbilityChargeCooldown@cooldownInDays";
         }
 
         private void Add(ConfigFile cfg, Category id, string section, string key, float def, SideMode side, int group,

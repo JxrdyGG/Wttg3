@@ -30,7 +30,10 @@ namespace DominusMultipliers
             if (t == typeof(float)) return (float)d;
             if (t == typeof(double)) return d;
             if (t == typeof(decimal)) return (decimal)d;
-            d = Math.Round(d, MidpointRounding.AwayFromZero);
+            // Random rounding keeps the average right for small whole numbers: 1 injury level x0.5 becomes 0 or 1 with
+            // 50% chance each (always rounding would give 1 every time, i.e. no reduction at all).
+            double floor = Math.Floor(d);
+            d = floor + (Rng.NextDouble() < d - floor ? 1 : 0);
             if (t == typeof(int)) return (int)Clamp(d, int.MinValue, int.MaxValue);
             if (t == typeof(long)) return (long)Clamp(d, long.MinValue, long.MaxValue);
             if (t == typeof(short)) return (short)Clamp(d, short.MinValue, short.MaxValue);
@@ -39,6 +42,9 @@ namespace DominusMultipliers
             if (t == typeof(ushort)) return (ushort)Clamp(d, ushort.MinValue, ushort.MaxValue);
             throw new NotSupportedException(t.FullName);
         }
+
+        [ThreadStatic] private static Random _rng;
+        private static Random Rng => _rng ?? (_rng = new Random(Guid.NewGuid().GetHashCode()));
 
         private static double Clamp(double d, double min, double max) => double.IsNaN(d) ? 0 : d < min ? min : d > max ? max : d;
     }

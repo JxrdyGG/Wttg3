@@ -1,7 +1,7 @@
 // A stand-in "game" whose method names mimic what a gladiator manager might use.
 namespace FakeGame
 {
-    public enum Team { Player, Enemy }
+    public enum Side { Player, Enemy }
 
     public class Ludus
     {
@@ -33,7 +33,7 @@ namespace FakeGame
 
     public class Unit
     {
-        public Team team;
+        public Side team;
         public int hp = 100;
         public void ReceiveHit(DamageInfo info) { hp -= info.amount; }  // hooked via Unit::ReceiveHit@info.amount
     }

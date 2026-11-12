@@ -38,6 +38,23 @@ namespace DominusMultipliers
             return null;
         }
 
+        private static readonly string[] ComponentGetters = { "GetComponent", "GetComponentInParent", "GetComponentInChildren" };
+
+        /// <summary>Unity GetComponent by type name on a Component/GameObject; null if not found or not a Unity object.</summary>
+        public static object GetComponent(object obj, string typeName)
+        {
+            var type = GameAssemblies.FindType(typeName);
+            if (type == null) return null;
+            foreach (var name in ComponentGetters)
+            {
+                var getter = obj.GetType().GetMethod(name, BindingFlags.Instance | BindingFlags.Public, null, new[] { typeof(Type) }, null);
+                if (getter == null) continue;
+                var c = getter.Invoke(obj, new object[] { type });
+                if (c != null && !c.Equals(null)) return c; // Unity's "destroyed" objects compare equal to null
+            }
+            return null;
+        }
+
         public static Type ValueType(MemberInfo m) =>
             m is FieldInfo f ? f.FieldType : m is PropertyInfo p ? p.PropertyType : ((MethodInfo)m).ReturnType;
 
@@ -66,6 +83,13 @@ namespace DominusMultipliers
             foreach (var seg in path)
             {
                 if (value == null) return true;
+                if (seg.Length > 1 && seg[0] == '@')
+                {
+                    // "@Team" = the Team component on the same GameObject (or a parent/child), for Unity components.
+                    value = GetComponent(value, seg.Substring(1));
+                    if (value == null) return false;
+                    continue;
+                }
                 var m = Find(value.GetType(), seg);
                 if (m == null) { value = null; return false; }
                 value = Get(m, value);

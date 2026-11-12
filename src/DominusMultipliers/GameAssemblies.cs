@@ -19,6 +19,22 @@ namespace DominusMultipliers
             "Google", "Firebase", "GameAnalytics", "Assembly-CSharp-Editor", "Assembly-UnityScript", "DominusMultipliers", "Galaxy", "Discord"
         };
 
+        public static List<Assembly> Loaded = new List<Assembly>();
+        private static readonly Dictionary<string, Type> TypeCache = new Dictionary<string, Type>(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>Finds a game type by short or full name in the scanned assemblies.</summary>
+        public static Type FindType(string name)
+        {
+            lock (TypeCache)
+            {
+                if (TypeCache.TryGetValue(name, out var t)) return t;
+                t = Loaded.SelectMany(TypesOf).FirstOrDefault(x => x.FullName == name)
+                    ?? Loaded.SelectMany(TypesOf).FirstOrDefault(x => x.Name == name);
+                TypeCache[name] = t;
+                return t;
+            }
+        }
+
         public static bool IsEngineType(Type t)
         {
             var ns = t.Namespace ?? "";

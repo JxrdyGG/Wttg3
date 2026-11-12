@@ -20,6 +20,7 @@ namespace DominusMultipliers.Menu
         {
             public string Name;
             public List<Row> Rows = new List<Row>();
+            public bool TeamSwitch;   // Combat tab: "your team" button
         }
 
         private const float W = 480, TitleH = 28, RowH = 30;
@@ -54,14 +55,15 @@ namespace DominusMultipliers.Menu
                     MakeRow("Defense (dmg taken /)", c.DefenseMultiplier, c[Category.Damage]),
                     R("Max health", Category.MaxHealth),
                     R("Hit/crit/dodge chance", Category.CombatChance),
-                }
+                },
+                TeamSwitch = true,
             });
             _tabs.Add(new Tab
             {
                 Name = "Care",
                 Rows =
                 {
-                    R("Healing", Category.Healing), R("Stamina regen", Category.Stamina), R("Stamina cost", Category.StaminaCost),
+                    R("Healing", Category.Healing), R("Stamina/fatigue recovery", Category.Stamina), R("Stamina cost", Category.StaminaCost),
                     R("Fatigue", Category.Fatigue), R("Injury & death chance", Category.Injury),
                 }
             });
@@ -136,7 +138,7 @@ namespace DominusMultipliers.Menu
         {
             var cfg = Mod.Cfg;
             var tab = _tabs[_tab];
-            float contentH = tab.Rows.Count > 0 ? tab.Rows.Count * RowH : InfoLines().Count * 20 + 4;
+            float contentH = (tab.Rows.Count > 0 ? tab.Rows.Count * RowH : InfoLines().Count * 20 + 4) + (tab.TeamSwitch ? RowH : 0);
             float h = TitleH + 32 + 30 + contentH + 64;
 
             // Keep the window on screen and let the title bar drag it.
@@ -165,6 +167,17 @@ namespace DominusMultipliers.Menu
             if (tab.Rows.Count > 0)
             {
                 foreach (var row in tab.Rows) { DrawRow(row, y, s); y += RowH; }
+                if (tab.TeamSwitch)
+                {
+                    var team = cfg.PlayerTeam.Value;
+                    var other = team == "TeamA" ? "TeamB" : "TeamA";
+                    if (Button(10, y + 2, W - 20, 24, $"Your arena team: {team}   (click if your gladiators take MORE damage: switch to {other})"))
+                    {
+                        cfg.PlayerTeam.Value = other; // SettingChanged re-reads the side rules
+                        _dirty = true;
+                    }
+                    y += RowH;
+                }
             }
             else
             {
@@ -207,7 +220,8 @@ namespace DominusMultipliers.Menu
             var lines = new List<string> { "Game methods connected per multiplier:" };
             var defs = Mod.Cfg.Categories;
             for (int i = 0; i < defs.Count; i += 3)
-                lines.Add("   " + string.Join("     ", defs.Skip(i).Take(3).Select(d => $"{d.Name}: {HookCount(d)}").ToArray()));
+                lines.Add("   " + string.Join("     ", defs.Skip(i).Take(3)
+                    .Select(d => d.Via != null && HookCount(d) > 0 && Own(d) == 0 ? $"{d.Name}: via {d.Via.Name}" : $"{d.Name}: {HookCount(d)}").ToArray()));
             lines.Add("");
             lines.Add("(!) = 0 methods connected: that multiplier does nothing yet.");
             lines.Add("Fix: open BepInEx/DominusMultipliers-dump.txt, find the game's");
@@ -283,12 +297,15 @@ namespace DominusMultipliers.Menu
             _dirty = false;
         }
 
-        private int HookCount(CategoryDef def)
+        private int Own(CategoryDef def)
         {
             if (!_hookCounts.TryGetValue(def, out var n))
                 _hookCounts[def] = n = Patcher.Bindings.Values.Count(b => b.Def == def);
             return n;
         }
+
+        /// <summary>Methods this multiplier acts through, including another category's (Cost through Money's hooks).</summary>
+        private int HookCount(CategoryDef def) => Own(def) + (def.Via != null ? Own(def.Via) : 0);
 
         private float Scale()
         {

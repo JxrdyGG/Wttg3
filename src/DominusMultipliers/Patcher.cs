@@ -63,9 +63,14 @@ namespace DominusMultipliers
         public static int PatchAll(Harmony harmony, List<Assembly> assemblies)
         {
             var cfg = Mod.Cfg;
-            var ruleSets = cfg.Categories
-                .Select(c => new KeyValuePair<CategoryDef, List<Rule>>(c, Rule.ParseList(c.Rules.Value)))
-                .ToList();
+            var ruleSets = cfg.Categories.Select(c =>
+            {
+                var rules = new List<Rule>();
+                if (cfg.UseBuiltInGameRules.Value)
+                    foreach (var r in Rule.ParseList(c.BuiltInRules)) { r.BuiltIn = true; rules.Add(r); }
+                rules.AddRange(Rule.ParseList(c.Rules.Value));
+                return new KeyValuePair<CategoryDef, List<Rule>>(c, rules);
+            }).ToList();
             var excludes = Rule.ParseList(cfg.ExcludeRules.Value);
 
             var prefix = new HarmonyMethod(AccessTools.Method(typeof(Hooks), nameof(Hooks.Prefix)));
@@ -84,14 +89,14 @@ namespace DominusMultipliers
                 foreach (var method in methods)
                 {
                     if (method.IsAbstract || method.ContainsGenericParameters || Bindings.ContainsKey(method)) continue;
-                    if (excludes.Any(r => r.Matches(type, method))) continue;
+                    bool excluded = excludes.Any(r => r.Matches(type, method));
 
                     Binding binding = null;
                     foreach (var set in ruleSets)
                     {
                         foreach (var rule in set.Value)
                         {
-                            if (!rule.Matches(type, method)) continue;
+                            if ((excluded && !rule.BuiltIn) || !rule.Matches(type, method)) continue;
                             binding = Bind(set.Key, rule, method);
                             if (binding != null) break;
                         }
@@ -117,7 +122,8 @@ namespace DominusMultipliers
                 }
             }
 
-            var missing = ruleSets.Where(set => !Bindings.Values.Any(b => b.Def == set.Key)).Select(set => set.Key.Name).ToList();
+            var missing = ruleSets.Where(set => !Bindings.Values.Any(b => b.Def == set.Key || b.Def == set.Key.Via))
+                                  .Select(set => set.Key.Name).ToList();
             if (missing.Count > 0)
                 Mod.Log.LogWarning($"Nothing was hooked for: {string.Join(", ", missing.ToArray())}. Those multipliers do nothing until " +
                                    "you add the game's method to the matching *Rules setting. See BepInEx/DominusMultipliers-dump.txt and README.md.");

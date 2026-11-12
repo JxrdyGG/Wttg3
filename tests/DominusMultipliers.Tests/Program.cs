@@ -6,6 +6,7 @@ using BepInEx.Configuration;
 using BepInEx.Logging;
 using DominusMultipliers;
 using FakeGame;
+using DF = DominusFake;
 
 internal static class Program
 {
@@ -58,8 +59,8 @@ internal static class Program
         var beast = new Beast(); beast.TakeDamage(10); Check("unknown side untouched", beast.hp, 90f);
         var foe2 = new Fighter(); Combat.ApplyDamage(foe2, 10); Check("static ApplyDamage receiver=target", foe2.hp, 80f);
 
-        var u1 = new Unit { team = Team.Player }; u1.ReceiveHit(new DamageInfo { amount = 40 }); Check("struct path, team=Player", u1.hp, 90);
-        var u2 = new Unit { team = Team.Enemy };  u2.ReceiveHit(new DamageInfo { amount = 40 }); Check("struct path, enemy", u2.hp, 20);
+        var u1 = new Unit { team = Side.Player }; u1.ReceiveHit(new DamageInfo { amount = 40 }); Check("struct path, team=Player", u1.hp, 90);
+        var u2 = new Unit { team = Side.Enemy };  u2.ReceiveHit(new DamageInfo { amount = 40 }); Check("struct path, enemy", u2.hp, 20);
         var pawn = new Pawn(); pawn.owner.isPlayer = true; pawn.Hurt(8); Check("dotted side owner.isPlayer", pawn.hp, 98);
 
         var g = new Gladiator();
@@ -95,11 +96,56 @@ internal static class Program
         cfg[Category.Money].Multiplier.Value = 1f; ludus.Gold = 0; ludus.AddGold(10); Check("live config change to x1", ludus.Gold, 10);
         cfg.Enabled.Value = false; g.Exp = 0; g.AddExperience(7); Check("Enabled=false", g.Exp, 7);
 
+        DominusTests(cfg);
         MenuTests(cfg);
 
         Dumper.Write(new List<Assembly> { typeof(Ludus).Assembly }, Path.GetTempPath());
         Console.WriteLine(_failures == 0 ? "\nALL PASSED" : $"\n{_failures} FAILED");
         return _failures == 0 ? 0 : 1;
+    }
+
+    private static void DominusTests(ModConfig cfg)
+    {
+        Console.WriteLine("-- Dominus Gladiatus built-in rules --");
+        cfg.Enabled.Value = true;
+        cfg[Category.Money].Multiplier.Value = 3f;
+        DF.PlayerProfile.Coins = 0;
+        DF.PlayerProfile.ModifyCoins(100, false); Check("ModifyCoins +100 x3", DF.PlayerProfile.Coins, 300);
+        DF.PlayerProfile.ModifyCoins(-40, false); Check("ModifyCoins -40 x0.5 (cost)", DF.PlayerProfile.Coins, 280);
+
+        var mine = DF.Health.OnTeam(DF.TeamId.TeamA);
+        var foe = DF.Health.OnTeam(DF.TeamId.TeamB);
+        var noTeam = DF.Health.OnTeam(null);
+        mine.Reduce(20, null, null);   Check("TeamA (yours) takes 20/4", mine.Amount, 95f);
+        foe.Reduce(20, null, null);    Check("TeamB (enemy) takes 20*2", foe.Amount, 60f);
+        noTeam.Reduce(20, null, null); Check("no Team component: unchanged", noTeam.Amount, 80f);
+        mine.Increase(10, null, true); Check("TeamA healing x2", mine.Amount, 115f);
+        foe.Increase(10, null, true);  Check("TeamB healing unchanged", foe.Amount, 70f);
+
+        var t = new DF.GladiatorTemplateData();
+        DF.HelperGladiator.ModifyCurrentHealth(t, 5);  Check("ludus heal +5 x2", t.Health, 60);
+        DF.HelperGladiator.ModifyCurrentHealth(t, -5); Check("ludus health loss unchanged", t.Health, 55);
+        DF.HelperGladiator.ModifyFatiguePoints(t, 8);  Check("fatigue +8 x0.25", t.Fatigue, 22);
+        DF.HelperGladiator.ModifyFatiguePoints(t, -4); Check("fatigue recovery -4 x3 (StaminaRegen)", t.Fatigue, 10);
+        DF.HelperGladiator.ModifyMorale(t, 5);         Check("morale +5 x2", t.Morale, 20);
+        DF.HelperGladiator.ModifyMorale(t, -6);        Check("morale -6 /2", t.Morale, 17);
+        Check("suicide chance from injuries x0.5", DF.HelperGladiator.GetSuicideChanceFromInjuries(t), 0.1f);
+        Check("training value x5", DF.HelperGladiator.CalculateTrainingValue(t), 15f);
+        Check("starting training days x5 (UI type, built-in ignores excludes)", DF.UISelectStartingConditions.GetStartingTrainingDays(0, 0), 50);
+        Check("room stay x0.5", new DF.LudusRoomBase().CalculateStayDurationInDaysForValidGladiator(t), 2f);
+        Check("infirmary override+base scaled once", new DF.LudusRoom_Infirmary().CalculateStayDurationInDaysForValidGladiator(t), 3f);
+        var ab = new DF.EmployeeAbility(); ab.CreateAbilityChargeCooldown(4); Check("ability cooldown x0.5", ab.Cooldown, 2);
+
+        // 1 injury level x0.5 must come out as 0 or 1, about half the time each (plain rounding would always give 1).
+        t.InjuryLevels = 0;
+        for (int i = 0; i < 2000; i++) DF.HelperGladiator.AddPendingInjury(t, 1);
+        Check("injury levels x0.5 on average (900-1100 of 2000)", t.InjuryLevels >= 900 && t.InjuryLevels <= 1100, true);
+
+        // Switching the player team flips the sides.
+        cfg.PlayerTeam.Value = "TeamB";
+        var a = DF.Health.OnTeam(DF.TeamId.TeamA); a.Reduce(20, null, null);
+        Check("after switching to TeamB, TeamA is the enemy", a.Amount, 60f);
+        cfg.PlayerTeam.Value = "TeamA";
     }
 
     private static void MenuTests(ModConfig cfg)
@@ -138,7 +184,7 @@ internal static class Program
 
         gui.ClickButton = "Info"; menu.OnGUI();
         gui.EventType = "Repaint"; menu.OnGUI();
-        Check("info tab lists hook counts", gui.Drawn.Exists(d => d.Contains("Money: 4")), true);
+        Check("info tab lists hook counts", gui.Drawn.Exists(d => d.Contains("Money: 5")), true);
 
         gui.EventType = "MouseDown"; gui.ClickButton = "All 1x"; menu.OnGUI();
         Check("All 1x preset", cfg[Category.Training].Multiplier.Value, 1f);
