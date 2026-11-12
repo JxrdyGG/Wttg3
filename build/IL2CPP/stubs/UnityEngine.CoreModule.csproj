@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Compile-time stand-in for the interop UnityEngine.CoreModule.dll that BepInEx 6 generates from the game.
+    It only declares the MonoBehaviour(IntPtr) constructor the plugin's MenuBehaviour needs. It is never shipped:
+    at runtime the game's real interop assembly (same name, same type) is used.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <AssemblyName>UnityEngine.CoreModule</AssemblyName>
+    <AssemblyVersion>0.0.0.0</AssemblyVersion>
+    <FileVersion>0.0.0.0</FileVersion>
+    <Nullable>disable</Nullable>
+    <BepInExCore Condition="'$(BepInExCore)' == ''">$(MSBuildThisFileDirectory)../../../lib/BepInEx6-IL2CPP/BepInEx/core</BepInExCore>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="Il2CppInterop.Runtime"><HintPath>$(BepInExCore)/Il2CppInterop.Runtime.dll</HintPath><Private>false</Private></Reference>
+  </ItemGroup>
+</Project>

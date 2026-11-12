@@ -45,12 +45,16 @@ namespace DominusMultipliers
         public readonly ConfigEntry<string> Assemblies;
         public readonly ConfigEntry<bool> WriteDump;
         public readonly ConfigEntry<bool> LogScaledCalls;
+        public readonly ConfigEntry<string> MenuKey;
+        public readonly ConfigEntry<float> MenuScale;
+        public readonly ConfigEntry<bool> ShowStartupHint;
 
         public readonly List<CategoryDef> Categories = new List<CategoryDef>();
         private readonly CategoryDef[] _byId = new CategoryDef[System.Enum.GetValues(typeof(Category)).Length];
         public CategoryDef this[Category c] => _byId[(int)c];
         public int GroupCount;
 
+        private const string MenuSection = "0. In-game menu";
         private const string Economy = "1. Economy";
         private const string Combat = "2. Combat";
         private const string Care = "3. Gladiator care";
@@ -66,6 +70,14 @@ namespace DominusMultipliers
 
         public ModConfig(ConfigFile cfg)
         {
+            MenuKey = cfg.Bind(MenuSection, "MenuKey", "F8",
+                "Key that opens/closes the in-game menu (a Unity KeyCode name: F1-F12, Insert, Home, BackQuote, Keypad0, ...).");
+            MenuScale = cfg.Bind(MenuSection, "MenuScale", 0f,
+                new ConfigDescription("Menu size. 0 = automatic (bigger on 1440p/4K screens), otherwise e.g. 1.5.",
+                    new AcceptableValueRange<float>(0f, 4f)));
+            ShowStartupHint = cfg.Bind(MenuSection, "ShowStartupHint", true,
+                "Show a short 'press F8 for the menu' note in the corner after the game starts.");
+
             Enabled = cfg.Bind(Economy, "Enabled", true, "Master switch. When false every hook passes values through unchanged.");
 
             // ---------------- Economy ----------------

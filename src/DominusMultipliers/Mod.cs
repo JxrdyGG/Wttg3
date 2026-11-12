@@ -11,14 +11,17 @@ namespace DominusMultipliers
     {
         public const string Guid = "dominus.multipliers";
         public const string Name = "Dominus Multipliers";
-        public const string Version = "1.1.0";
+        public const string Version = "1.2.0";
 
         internal static ManualLogSource Log;
         internal static ModConfig Cfg;
+        internal static ConfigFile File;
+        internal static Menu.ModMenu Menu;
 
         internal static void Init(ConfigFile config, ManualLogSource log, List<Assembly> assemblies = null)
         {
             Log = log;
+            File = config;
             Cfg = new ModConfig(config);
             SideResolver.Configure(Cfg.PlayerSideMembers.Value);
 
@@ -34,5 +37,20 @@ namespace DominusMultipliers
             if (Cfg.WriteDump.Value)
                 Dumper.Write(assemblies);
         }
+
+        /// <summary>Called from Unity's OnGUI. The menu is created on first use, once Unity's GUI is up.</summary>
+        internal static void OnGUI()
+        {
+            if (Menu == null)
+            {
+                if (_menuUnavailable) return;
+                var gui = DominusMultipliers.Menu.ReflectionGui.TryCreate();
+                if (gui == null) { _menuUnavailable = true; return; }
+                Menu = new Menu.ModMenu(gui, File);
+            }
+            Menu.OnGUI();
+        }
+
+        private static bool _menuUnavailable;
     }
 }

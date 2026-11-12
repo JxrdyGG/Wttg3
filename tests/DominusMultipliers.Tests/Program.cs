@@ -95,9 +95,69 @@ internal static class Program
         cfg[Category.Money].Multiplier.Value = 1f; ludus.Gold = 0; ludus.AddGold(10); Check("live config change to x1", ludus.Gold, 10);
         cfg.Enabled.Value = false; g.Exp = 0; g.AddExperience(7); Check("Enabled=false", g.Exp, 7);
 
+        MenuTests(cfg);
+
         Dumper.Write(new List<Assembly> { typeof(Ludus).Assembly }, Path.GetTempPath());
         Console.WriteLine(_failures == 0 ? "\nALL PASSED" : $"\n{_failures} FAILED");
         return _failures == 0 ? 0 : 1;
+    }
+
+    private static void MenuTests(ModConfig cfg)
+    {
+        Console.WriteLine("-- menu --");
+        cfg.Enabled.Value = true;
+        var gui = new FakeGui();
+        var menu = new DominusMultipliers.Menu.ModMenu(gui, Mod.File);
+
+        menu.OnGUI();
+        Check("startup hint shown while closed", gui.Drawn.Exists(d => d.Contains("press F8")), true);
+
+        gui.EventType = "KeyDown"; gui.KeyCode = "F8"; menu.OnGUI();
+        Check("F8 opens menu", menu.IsOpen, true);
+        Check("F8 event consumed", gui.Used, true);
+
+        gui.EventType = "Repaint"; gui.KeyCode = "None"; menu.OnGUI();
+        Check("economy tab shows Money row", gui.Drawn.Contains("Money gained"), true);
+        Check("font size pushed/popped", gui.FontDepth, 0);
+
+        gui.EventType = "MouseDown"; gui.ClickButton = "Strong"; menu.OnGUI();
+        Check("Strong preset: money", cfg[Category.Money].Multiplier.Value, 5f);
+        Check("Strong preset: defense", cfg.DefenseMultiplier.Value, 3f);
+        Check("Strong preset: duration", cfg[Category.Duration].Multiplier.Value, 0.25f);
+
+        gui.ClickButton = "+"; menu.OnGUI();          // first + is Money
+        Check("+ button adds 0.25", cfg[Category.Money].Multiplier.Value, 5.25f);
+        gui.SliderIndex = 1; gui.SliderValue = 0.37f; menu.OnGUI(); gui.SliderIndex = -1; // 2nd slider = Cost, snaps to 0.05
+        Check("cost slider snaps to 0.35", cfg[Category.Cost].Multiplier.Value, 0.35f);
+
+        gui.ClickButton = "Combat"; menu.OnGUI();
+        gui.EventType = "Repaint"; menu.OnGUI();
+        Check("combat tab shows Defense row", gui.Drawn.Contains("Defense (dmg taken /)"), true);
+        gui.EventType = "MouseDown"; gui.ClickButton = "-"; menu.OnGUI();   // first - on Combat tab is Damage
+        Check("- button lowers damage", cfg[Category.Damage].Multiplier.Value, 2.75f);
+
+        gui.ClickButton = "Info"; menu.OnGUI();
+        gui.EventType = "Repaint"; menu.OnGUI();
+        Check("info tab lists hook counts", gui.Drawn.Exists(d => d.Contains("Money: 4")), true);
+
+        gui.EventType = "MouseDown"; gui.ClickButton = "All 1x"; menu.OnGUI();
+        Check("All 1x preset", cfg[Category.Training].Multiplier.Value, 1f);
+        gui.ClickButton = "Defaults"; menu.OnGUI();
+        Check("Defaults preset", cfg[Category.Money].Multiplier.Value, 2f);
+
+        // Title-bar drag moves the window (window starts at 40,40; title bar is the top 28px).
+        gui.EventType = "MouseDown"; gui.MouseX = 100; gui.MouseY = 50; menu.OnGUI();
+        gui.EventType = "MouseDrag"; gui.DeltaX = 30; gui.DeltaY = 20; menu.OnGUI();
+        gui.EventType = "MouseUp"; menu.OnGUI();
+        gui.EventType = "Repaint"; gui.MouseX = 100 + 30; gui.MouseY = 50 + 20; menu.OnGUI();
+        gui.EventType = "MouseDown"; gui.ClickButton = null; gui.MouseX = 75; gui.MouseY = 65; menu.OnGUI();
+        Check("dragged window: new title bar position grabs", gui.Used, true);
+        gui.EventType = "MouseUp"; menu.OnGUI();
+
+        gui.EventType = "KeyDown"; gui.KeyCode = "F8"; menu.OnGUI();
+        Check("F8 closes menu", menu.IsOpen, false);
+        var saved = new ConfigFile(Mod.File.ConfigFilePath, false);
+        Check("settings saved to file", saved.Bind("1. Economy", "MoneyMultiplier", 0f).Value, 2f);
     }
 
     private sealed class ConsoleListener : ILogListener

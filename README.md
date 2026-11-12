@@ -24,8 +24,23 @@ Configurable multipliers for everything that gives you an edge. Values below 1 r
 Only **your** side is boosted. Rival gladiators and rival schools that the mod can identify (see
 [Telling yours from theirs](#telling-yours-from-theirs)) are left alone, except that enemies take extra damage.
 
-Every multiplier can be changed while the game is running (edit the config, or use
-[BepInEx.ConfigurationManager](https://github.com/BepInEx/BepInEx.ConfigurationManager) with **F1**). Set a multiplier to `1` to turn it off.
+## In-game menu
+
+Press **F8** in the game to open the menu:
+
+- **Tabs**: Economy, Combat, Care, Progress, and Info.
+- **Each multiplier** has a slider, `-`/`+` buttons, and its current value. "off" means 1x.
+- **Presets**: *All 1x* (mod off), *Defaults*, *Strong*, and *Godlike*.
+- **Mod enabled**: a checkbox that turns the whole mod on or off.
+- **(!)** after a name means that multiplier isn't connected to the game yet, so it does nothing.
+  The **Info** tab shows how many game methods each multiplier is connected to.
+- Hover over a setting to see what it does. Drag the title bar to move the window.
+
+Changes apply immediately and are saved to the config file. Settings under *0. In-game menu* in the config:
+`MenuKey` (default `F8`), `MenuScale` (`0` = auto-size for big screens), and `ShowStartupHint`.
+
+If the game's Unity build leaves out the GUI functions the menu needs, the log says
+`In-game menu unavailable`. You can still edit the `.cfg` file instead. That's most likely with IL2CPP builds.
 
 > **Important:** I don't have access to the game's code, so the mod doesn't hard-code the game's method names.
 > It looks for common names (`AddGold`, `SpendGold`, `TakeDamage`, `Heal`, `AddExperience`, `GetInjuryChance`, …) and hooks them.
@@ -48,7 +63,8 @@ Every multiplier can be changed while the game is running (edit the config, or u
 4. **Copy the mod DLL** into `BepInEx/plugins`:
    - Mono: `dist/Mono/DominusMultipliers.dll`
    - IL2CPP: `dist/IL2CPP/DominusMultipliers.IL2CPP.dll`
-5. Start the game. The config appears at `BepInEx/config/dominus.multipliers.cfg`.
+5. Start the game. A note in the top-left corner says the mod is loaded. Press **F8** for the menu.
+   The settings are also in `BepInEx/config/dominus.multipliers.cfg`.
 
 Tip: in `BepInEx/config/BepInEx.cfg` set `[Logging.Console] Enabled = true` to see the mod's messages in a console window.
 They're also in `BepInEx/LogOutput.log`.
@@ -61,7 +77,7 @@ In the log you should see lines like:
 [Info: Dominus Multipliers] Hooked [Money] Void Ludus::AddGold(Int32 amount)  scales: amount  (rule *::AddGold)
 [Info: Dominus Multipliers] Hooked [Damage] Void Gladiator::TakeDamage(Single damage)  scales: damage, receiver=this  (rule *::TakeDamage)
 ...
-[Info: Dominus Multipliers] Dominus Multipliers 1.1.0: hooked 9 method(s). Damage x1.5, Defense x1.5, MaxHealth x1.5, ...
+[Info: Dominus Multipliers] Dominus Multipliers 1.2.0: hooked 9 method(s). Damage x1.5, Defense x1.5, MaxHealth x1.5, ...
 [Warning: Dominus Multipliers] Nothing was hooked for: CombatChance, Fatigue, Duration. Those multipliers do nothing until ...
 ```
 
@@ -173,3 +189,6 @@ To compile against your own BepInEx install, pass `-p:BepInExCore="<game>/BepInE
 | `Hooks.cs` | The Harmony prefix/postfix/finalizer that does the scaling |
 | `SideResolver.cs` | Decides whether a gladiator/ludus is yours |
 | `Dumper.cs` | Writes the dump file |
+| `Menu/ModMenu.cs` | The F8 in-game menu |
+| `Menu/ReflectionGui.cs` | Unity IMGUI through reflection, so one menu works on Mono and IL2CPP |
+| `build/IL2CPP/stubs/` | Compile-time stand-in for `UnityEngine.MonoBehaviour` (IL2CPP build only, never shipped) |
