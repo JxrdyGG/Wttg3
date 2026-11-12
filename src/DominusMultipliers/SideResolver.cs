@@ -40,7 +40,7 @@ namespace DominusMultipliers
         }
 
         /// <summary>true = player's, false = enemy, null = could not tell.</summary>
-        public static bool? IsPlayer(object receiver)
+        public static bool? IsPlayer(object receiver, bool warnIfUnknown = true)
         {
             if (receiver == null) return null;
             foreach (var c in Conditions)
@@ -59,7 +59,7 @@ namespace DominusMultipliers
                 if (v.GetType().IsEnum && c.Expected.Contains(Convert.ToInt64(v).ToString())) return true;
                 return false;
             }
-            ProbeOnce(receiver);
+            if (warnIfUnknown) ProbeOnce(receiver);
             return null;
         }
 
@@ -70,7 +70,7 @@ namespace DominusMultipliers
             lock (Probed) { if (!Probed.Add(type)) return; }
             var sb = new StringBuilder();
             sb.Append("Could not tell which side '").Append(type.FullName)
-              .Append("' is on (none of PlayerSideMembers exist on it). Its bool/enum members right now:");
+              .Append("' is on (none of PlayerSideMembers exist on it), so its damage/max health/combat chances are left unchanged. Its bool/enum members right now:");
             sb.Append(DescribeSideMembers(receiver, type));
             sb.Append("\n  -> add the right one to PlayerSideMembers, e.g. isPlayer  or  team=Player  (see README).");
             Mod.Log.LogWarning(sb.ToString());

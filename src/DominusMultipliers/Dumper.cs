@@ -17,12 +17,15 @@ namespace DominusMultipliers
     {
         private static readonly KeyValuePair<string, Regex>[] Sections =
         {
-            Kw("Money", "gold|money|denar|coin|currency|wallet|treasur|income|reward|wage|salary|payment|prize|purse|cash|fund|earn|bribe|sponsor"),
-            Kw("Damage / defense", "damage|dmg|hit|health|hp$|^hp|wound|armou?r|defen|block|parry|dodge|injur|hurt|attack|strike|resist|mitigat"),
-            Kw("Training", "train|exp$|^exp|experience|xp|skill|stat|attribute|level|progress|improve|learn|practice|drill|potential|fatigue"),
+            Kw("Money / prices", "gold|money|denar|coin|currency|wallet|treasur|income|reward|wage|salary|payment|prize|purse|cash|fund|earn|bribe|sponsor|price|cost|sell|spend|buy|purchase|upkeep|bet"),
+            Kw("Combat", "damage|dmg|hit|wound|armou?r|defen|block|parry|dodge|evade|evasion|attack|strike|resist|mitigat|crit|accura|maxhealth|maxhp"),
+            Kw("Health / stamina / injuries", "health|hp$|^hp|heal|regen|recover|stamina|energy|fatigue|exhaust|tired|stress|injur|death|die|maim|hurt"),
+            Kw("Training", "train|exp$|^exp|experience|xp|skill|stat|attribute|level|progress|improve|learn|practice|drill|potential"),
+            Kw("Fame / morale", "fame|reput|popular|renown|prestige|influence|favor|favour|crowd|hype|glory|honou?r|appeal|morale|loyal|happi|motivat|mood|obedien|disciplin|confiden|trust"),
+            Kw("Durations", "duration|time$|days$|delay|cooldown|recoverytime|buildtime|constructiontime"),
         };
         private static readonly Regex CombatantType = new Regex(
-            "gladiator|fighter|unit|combatant|character|warrior|actor|entity|health|team|battle|arena|duel|participant|slave",
+            "gladiator|fighter|unit|combatant|character|warrior|actor|entity|health|team|battle|arena|duel|participant|slave|ludus|owner|lanista|rival|faction",
             RegexOptions.IgnoreCase);
 
         private static KeyValuePair<string, Regex> Kw(string name, string rx) =>
@@ -79,8 +82,8 @@ namespace DominusMultipliers
             }
 
             sb.AppendLine("=== POSSIBLE SIDE MEMBERS (for PlayerSideMembers) ===");
-            sb.AppendLine("  bool/enum members of types that look like combatants or that own a hooked damage method:");
-            var damageTypes = new HashSet<Type>(Patcher.Bindings.Values.Where(b => b.Category == Category.Damage).Select(b => b.Method.DeclaringType));
+            sb.AppendLine("  bool/enum members of types that look like combatants or that own a hooked method:");
+            var damageTypes = new HashSet<Type>(Patcher.Bindings.Values.Select(b => b.Method.DeclaringType));
             foreach (var t in types.Where(t => damageTypes.Contains(t) || CombatantType.IsMatch(t.Name)))
             {
                 var members = SideResolver.DescribeSideMembers(null, t);

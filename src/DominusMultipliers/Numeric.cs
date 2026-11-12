@@ -8,18 +8,21 @@ namespace DominusMultipliers
             t == typeof(int) || t == typeof(long) || t == typeof(short) || t == typeof(uint) || t == typeof(ulong) ||
             t == typeof(ushort) || t == typeof(float) || t == typeof(double) || t == typeof(decimal);
 
-        /// <summary>Returns value * multiplier converted back to the value's own type, or null if left unchanged.</summary>
-        public static object Scale(object value, double multiplier, bool onlyPositive)
+        /// <summary>
+        /// Scales a positive value by <paramref name="pos"/> and a negative one by <paramref name="neg"/> (null = leave as is),
+        /// converted back to the value's own type. Returns null if nothing changed.
+        /// </summary>
+        public static object Scale(object value, double? pos, double? neg)
         {
             if (value == null || !IsNumeric(value.GetType())) return null;
             if (value is decimal dec)
             {
-                if (onlyPositive && dec <= 0m) return null;
-                return dec * (decimal)multiplier;
+                var dm = dec > 0m ? pos : dec < 0m ? neg : null;
+                return dm == null ? null : (object)(dec * (decimal)dm.Value);
             }
             double d = Convert.ToDouble(value);
-            if (onlyPositive && !(d > 0)) return null;
-            return FromDouble(value.GetType(), d * multiplier);
+            var m = d > 0 ? pos : d < 0 ? neg : null;
+            return m == null ? null : FromDouble(value.GetType(), d * m.Value);
         }
 
         public static object FromDouble(Type t, double d)

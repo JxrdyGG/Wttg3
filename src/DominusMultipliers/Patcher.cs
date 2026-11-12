@@ -10,14 +10,15 @@ namespace DominusMultipliers
     /// <summary>A hooked game method and how to scale it.</summary>
     internal sealed class Binding
     {
-        public Category Category;
+        public CategoryDef Def;
+        public Category Category => Def.Id;
         public Rule Rule;
         public MethodBase Method;
         public TargetKind Kind;
         public int[] ParamIndices = new int[0];   // for FirstNumeric/AllNumeric/Parameter/Delta
         public string[] MemberPath;               // for Parameter with .path
         public MethodInfo Getter;                 // for Delta
-        public int SideParam = -1;                // -1 = use instance
+        public int SideParam = -1;                // -1 = use instance (null for static methods)
         public int LoggedCalls;
         public int LoggedErrors;
 
@@ -34,7 +35,8 @@ namespace DominusMultipliers
                     if (MemberPath != null) target += "." + string.Join(".", MemberPath);
                     break;
             }
-            var side = Category == Category.Damage ? $", receiver={(SideParam < 0 ? "this" : ps[SideParam].Name)}" : "";
+            var who = SideParam >= 0 ? ps[SideParam].Name : Method.IsStatic ? "-" : "this";
+            var side = Category == Category.Damage ? $", receiver={who}" : $", subject={who}";
             return $"[{Category}] {Signature(Method)}  scales: {target}{side}  (rule {Rule.Raw})";
         }
 
@@ -52,7 +54,7 @@ namespace DominusMultipliers
 
         // When a rule doesn't name a parameter, prefer ones that look like an amount and avoid ones that look like an index.
         private static readonly Regex AmountName = new Regex(
-            "amount|amt|value|val$|gold|money|denar|coin|cash|currency|exp|xp|damage|dmg|point|gain|delta|progress|qty|quantity|sum|add|reward|income|hit|hp|health|change|diff|increase|inc$|num$|^v$|^x$|^a$|^n$|^d$",
+            "amount|amt|value|val$|gold|money|denar|coin|cash|currency|exp|xp|damage|dmg|point|gain|delta|progress|qty|quantity|sum|add|reward|income|hit|hp|health|heal|stamina|energy|fatigue|stress|fame|reput|popular|favo|prestige|glory|morale|loyal|happi|motivat|cost|price|change|diff|increase|inc$|num$|^v$|^x$|^a$|^n$|^d$",
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
         private static readonly Regex IndexName = new Regex(
             "index|idx|^id$|id$|slot|type|kind|level|lvl|count|day|week|turn|seed|time|frame|layer|mask|flags|tier|rank|order|position|pos$",
@@ -61,12 +63,9 @@ namespace DominusMultipliers
         public static int PatchAll(Harmony harmony, List<Assembly> assemblies)
         {
             var cfg = Mod.Cfg;
-            var ruleSets = new[]
-            {
-                new KeyValuePair<Category, List<Rule>>(Category.Money, Rule.ParseList(cfg.MoneyRules.Value)),
-                new KeyValuePair<Category, List<Rule>>(Category.Damage, Rule.ParseList(cfg.DamageRules.Value)),
-                new KeyValuePair<Category, List<Rule>>(Category.Training, Rule.ParseList(cfg.TrainingRules.Value)),
-            };
+            var ruleSets = cfg.Categories
+                .Select(c => new KeyValuePair<CategoryDef, List<Rule>>(c, Rule.ParseList(c.Rules.Value)))
+                .ToList();
             var excludes = Rule.ParseList(cfg.ExcludeRules.Value);
 
             var prefix = new HarmonyMethod(AccessTools.Method(typeof(Hooks), nameof(Hooks.Prefix)));
@@ -118,18 +117,18 @@ namespace DominusMultipliers
                 }
             }
 
-            foreach (var set in ruleSets)
-                if (!Bindings.Values.Any(b => b.Category == set.Key))
-                    Mod.Log.LogWarning($"No {set.Key} methods were hooked. Open BepInEx/DominusMultipliers-dump.txt " +
-                                          $"to find the right method and add it to {set.Key}Rules (see README).");
+            var missing = ruleSets.Where(set => !Bindings.Values.Any(b => b.Def == set.Key)).Select(set => set.Key.Name).ToList();
+            if (missing.Count > 0)
+                Mod.Log.LogWarning($"Nothing was hooked for: {string.Join(", ", missing.ToArray())}. Those multipliers do nothing until " +
+                                   "you add the game's method to the matching *Rules setting. See BepInEx/DominusMultipliers-dump.txt and README.md.");
             return count;
         }
 
         /// <summary>Works out what to scale on <paramref name="method"/>, or returns null if the rule can't apply to it.</summary>
-        private static Binding Bind(Category cat, Rule rule, MethodInfo method)
+        private static Binding Bind(CategoryDef cat, Rule rule, MethodInfo method)
         {
             var ps = method.GetParameters();
-            var b = new Binding { Category = cat, Rule = rule, Method = method, Kind = rule.Kind, MemberPath = rule.MemberPath };
+            var b = new Binding { Def = cat, Rule = rule, Method = method, Kind = rule.Kind, MemberPath = rule.MemberPath };
             bool Usable(ParameterInfo p) => !p.ParameterType.IsByRef && !p.IsOut && Numeric.IsNumeric(p.ParameterType);
 
             switch (rule.Kind)
@@ -175,20 +174,19 @@ namespace DominusMultipliers
                 }
             }
 
-            if (cat == Category.Damage)
+            // Whose value is this? (instance, a named parameter, or for static methods the first object parameter)
+            if (!string.IsNullOrEmpty(rule.SideSelector) && !rule.SideSelector.Equals("this", StringComparison.OrdinalIgnoreCase))
             {
-                if (!string.IsNullOrEmpty(rule.SideSelector) && !rule.SideSelector.Equals("this", StringComparison.OrdinalIgnoreCase))
-                {
-                    var sp = FindParam(ps, rule.SideSelector);
-                    if (sp == null) return Skip(rule, method, $"no receiver parameter '{rule.SideSelector}'");
-                    b.SideParam = sp.Position;
-                }
-                else if (method.IsStatic)
-                {
-                    var sp = ps.FirstOrDefault(p => !p.ParameterType.IsValueType && p.ParameterType != typeof(string));
-                    if (sp == null) return Skip(rule, method, "static method with no object parameter to use as the receiver");
-                    b.SideParam = sp.Position;
-                }
+                var sp = FindParam(ps, rule.SideSelector);
+                if (sp == null) return Skip(rule, method, $"no subject parameter '{rule.SideSelector}'");
+                b.SideParam = sp.Position;
+            }
+            else if (method.IsStatic)
+            {
+                var sp = ps.FirstOrDefault(p => !p.ParameterType.IsValueType && p.ParameterType != typeof(string));
+                if (sp != null) b.SideParam = sp.Position;
+                else if (cat.Side != SideMode.PlayerSupport)
+                    return Skip(rule, method, "static method with no object parameter to tell whose side it is (add !param to the rule)");
             }
             return b;
         }

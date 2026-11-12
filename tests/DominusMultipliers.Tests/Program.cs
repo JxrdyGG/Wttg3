@@ -29,28 +29,28 @@ internal static class Program
 
         // Defaults plus the explicit rules a user would add after reading the dump.
         var cfg = new ModConfig(config);
-        cfg.MoneyMultiplier.Value = 3f;
-        cfg.DamageMultiplier.Value = 2f;
-        cfg.DefenseMultiplier.Value = 4f;
-        cfg.TrainingMultiplier.Value = 5f;
+        void Set(Category c, float v) => cfg[c].Multiplier.Value = v;
+        Set(Category.Money, 3f); Set(Category.Damage, 2f); cfg.DefenseMultiplier.Value = 4f; Set(Category.Training, 5f);
+        Set(Category.Cost, 0.5f); Set(Category.SellPrice, 1.5f); Set(Category.MaxHealth, 1.5f); Set(Category.CombatChance, 2f);
+        Set(Category.Healing, 2f); Set(Category.Stamina, 3f); Set(Category.StaminaCost, 0.5f); Set(Category.Fatigue, 0.25f);
+        Set(Category.Injury, 0.5f); Set(Category.Fame, 4f); Set(Category.Morale, 2f); Set(Category.Duration, 0.5f);
         cfg.WriteDump.Value = false;
-        cfg.MoneyRules.Value += ";Purse::set_Coins@delta";
-        cfg.DamageRules.Value += ";Unit::ReceiveHit@info.amount";
-        cfg.TrainingRules.Value += ";TrainingFormula::GetSessionGain@return";
-        cfg.PlayerSideMembers.Value += ";owner.isPlayer";
+        cfg[Category.Money].Rules.Value += ";Purse::set_Coins@delta";
+        cfg[Category.Damage].Rules.Value += ";Unit::ReceiveHit@info.amount";
+        cfg[Category.Training].Rules.Value += ";TrainingFormula::GetSessionGain@return";
 
         Mod.Init(config, log, new List<Assembly> { typeof(Ludus).Assembly });
 
         var ludus = new Ludus();
         ludus.AddGold(10);   Check("AddGold 10 x3", ludus.Gold, 30);
         ludus.AddMoney(10);  Check("AddMoney->AddGold scales once", ludus.Gold, 60);
-        ludus.SpendGold(5);  Check("SpendGold untouched", ludus.Gold, 55);
-        ludus.AddGold(-5);   Check("negative AddGold untouched (MoneyOnlyGains)", ludus.Gold, 50);
+        ludus.SpendGold(6);  Check("Ludus.SpendGold x0.5 cost", ludus.Gold, 57);
+        ludus.AddGold(-10);  Check("negative AddGold = cost x0.5", ludus.Gold, 52);
         var ui = new GoldUI(); ui.AddGold(10); Check("GoldUI excluded", ui.Shown, 10);
 
         var purse = new Purse { Coins = 0 };  // first set: 0 -> 0, no gain
         purse.Coins += 10;   Check("set_Coins delta x3", purse.Coins, 30L);
-        purse.Coins -= 5;    Check("set_Coins decrease untouched", purse.Coins, 25L);
+        purse.Coins -= 10;   Check("set_Coins decrease = cost x0.5", purse.Coins, 25L);
 
         var mine = new Fighter { isPlayer = true }; mine.TakeDamage(20); Check("player takes 20/4", mine.hp, 95f);
         var foe = new Fighter { isPlayer = false }; foe.TakeDamage(20); Check("enemy takes 20*2", foe.hp, 60f);
@@ -68,8 +68,31 @@ internal static class Program
         Check("IncreaseStat leaves index alone", g.Stats[0], 0);
         Check("@return x5", TrainingFormula.GetSessionGain(), 50f);
 
+        var shop = new Shop(); shop.Ludus.Gold = 100;
+        shop.SpendGold(40);       Check("SpendGold->AddGold(-x) discounted once", shop.Ludus.Gold, 80);
+        shop.BuyViaNegative(40);  Check("AddGold(-40) discounted", shop.Ludus.Gold, 60);
+        Check("sell price x1.5", shop.GetSellPrice(), 150);
+
+        var w = new Warrior { isPlayer = true };
+        var e = new Warrior { isPlayer = false };
+        Check("max health mine x1.5", w.GetMaxHealth(), 150f);
+        Check("max health enemy unchanged", e.GetMaxHealth(), 100f);
+        Check("crit chance mine x2", w.GetCritChance(), 0.4f);
+        Check("crit chance enemy unchanged", e.GetCritChance(), 0.2f);
+        w.Heal(10); e.Heal(10);   Check("heal mine x2", w.hp, 20f); Check("heal enemy unchanged", e.hp, 10f);
+        w.AddStamina(10);         Check("stamina regen x3", w.stamina, 30f);
+        w.UseStamina(10);         Check("stamina cost x0.5", w.stamina, 25f);
+        w.AddFatigue(8);          Check("fatigue x0.25", w.fatigue, 2f);
+        w.AddMorale(5);           Check("morale x2", w.morale, 10f);
+        w.AddFame(5); e.AddFame(5); Check("fame x4", w.fame, 20f); Check("enemy fame unchanged", e.fame, 5f);
+        Check("injury chance x0.5", w.GetInjuryChance(), 0.2f);
+        Check("static recovery days(subject=mine) x0.5", Calendar.GetRecoveryDays(w), 5);
+        Check("static recovery days(subject=enemy) unchanged", Calendar.GetRecoveryDays(e), 10);
+        Check("static build time (no subject) x0.5", Calendar.GetBuildTime(), 3);
+        var rival = new RivalLudus(); rival.AddGold(10); Check("rival (isAI=true) gold unchanged", rival.Gold, 10);
+
         cfg = Mod.Cfg;
-        cfg.MoneyMultiplier.Value = 1f; ludus.Gold = 0; ludus.AddGold(10); Check("live config change to x1", ludus.Gold, 10);
+        cfg[Category.Money].Multiplier.Value = 1f; ludus.Gold = 0; ludus.AddGold(10); Check("live config change to x1", ludus.Gold, 10);
         cfg.Enabled.Value = false; g.Exp = 0; g.AddExperience(7); Check("Enabled=false", g.Exp, 7);
 
         Dumper.Write(new List<Assembly> { typeof(Ludus).Assembly }, Path.GetTempPath());

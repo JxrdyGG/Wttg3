@@ -5,19 +5,19 @@ using HarmonyLib;
 namespace DominusMultipliers
 {
     /// <summary>
-    /// Generic Harmony patches shared by every hooked method. A per-category re-entrancy counter makes sure a value is
-    /// scaled only once even when hooked methods call each other (e.g. Ludus.AddGold -> Wallet.AddMoney, or an
-    /// override calling base.TakeDamage).
+    /// Generic Harmony patches shared by every hooked method. A re-entrancy counter per category group makes sure a value
+    /// is scaled only once even when hooked methods call each other (e.g. Ludus.AddGold -> Wallet.AddMoney,
+    /// SpendGold -> AddGold(-x), or an override calling base.TakeDamage).
     /// </summary>
     public static class Hooks
     {
         [ThreadStatic] private static int[] _depth;
-        private static int[] Depth => _depth ?? (_depth = new int[3]);
+        private static int[] Depth => _depth ?? (_depth = new int[Mod.Cfg.GroupCount]);
 
         public static void Prefix(MethodBase __originalMethod, object __instance, object[] __args)
         {
             if (!Patcher.Bindings.TryGetValue(__originalMethod, out var b)) return;
-            if (++Depth[(int)b.Category] != 1 || b.Kind == TargetKind.Return) return;
+            if (++Depth[b.Def.Group] != 1 || b.Kind == TargetKind.Return) return;
             if (!Mod.Cfg.Enabled.Value) return;
             try { ScaleArgs(b, __instance, __args); }
             catch (Exception e) { ReportError(b, e); }
@@ -25,7 +25,7 @@ namespace DominusMultipliers
 
         public static Exception Finalizer(MethodBase __originalMethod, Exception __exception)
         {
-            if (Patcher.Bindings.TryGetValue(__originalMethod, out var b)) Depth[(int)b.Category]--;
+            if (Patcher.Bindings.TryGetValue(__originalMethod, out var b)) Depth[b.Def.Group]--;
             return __exception;
         }
 
@@ -52,14 +52,13 @@ namespace DominusMultipliers
 
         private static void Post<T>(MethodBase original, object instance, object[] args, ref T result)
         {
-            if (!Patcher.Bindings.TryGetValue(original, out var b) || Depth[(int)b.Category] != 1 || !Mod.Cfg.Enabled.Value) return;
+            if (!Patcher.Bindings.TryGetValue(original, out var b) || Depth[b.Def.Group] != 1 || !Mod.Cfg.Enabled.Value) return;
             try
             {
-                var m = Multiplier(b, instance, args);
-                if (m == null) return;
-                var scaled = Numeric.Scale(result, m.Value, OnlyPositive(b.Category));
+                if (!Multipliers(b, instance, args, out var pos, out var neg)) return;
+                var scaled = Numeric.Scale(result, pos, neg);
                 if (scaled == null) return;
-                Trace(b, result, scaled, m.Value);
+                Trace(b, result, scaled);
                 result = (T)scaled;
             }
             catch (Exception e) { ReportError(b, e); }
@@ -68,17 +67,16 @@ namespace DominusMultipliers
         // ---- argument scaling ----
         private static void ScaleArgs(Binding b, object instance, object[] args)
         {
-            var m = Multiplier(b, instance, args);
-            if (m == null) return;
-            bool onlyPositive = OnlyPositive(b.Category);
+            if (!Multipliers(b, instance, args, out var pos, out var neg)) return;
 
             if (b.Kind == TargetKind.Delta)
             {
                 var current = b.Getter.Invoke(b.Getter.IsStatic ? null : instance, null);
-                double cur = Convert.ToDouble(current), next = Convert.ToDouble(args[0]), delta = next - cur;
-                if (onlyPositive && !(delta > 0)) return;
+                double cur = Convert.ToDouble(current), delta = Convert.ToDouble(args[0]) - cur;
+                var m = delta > 0 ? pos : delta < 0 ? neg : null;
+                if (m == null) return;
                 var result = Numeric.FromDouble(args[0].GetType(), cur + delta * m.Value);
-                Trace(b, args[0], result, m.Value);
+                Trace(b, args[0], result);
                 args[0] = result;
                 return;
             }
@@ -87,20 +85,20 @@ namespace DominusMultipliers
             {
                 if (b.MemberPath == null)
                 {
-                    var scaled = Numeric.Scale(args[i], m.Value, onlyPositive);
+                    var scaled = Numeric.Scale(args[i], pos, neg);
                     if (scaled == null) continue;
-                    Trace(b, args[i], scaled, m.Value);
+                    Trace(b, args[i], scaled);
                     args[i] = scaled;
                 }
                 else if (args[i] != null)
                 {
                     // Works for classes and for boxed structs (the box is modified in place, then written back).
-                    args[i] = ScalePath(b, args[i], 0, m.Value, onlyPositive);
+                    args[i] = ScalePath(b, args[i], 0, pos, neg);
                 }
             }
         }
 
-        private static object ScalePath(Binding b, object container, int depth, double m, bool onlyPositive)
+        private static object ScalePath(Binding b, object container, int depth, double? pos, double? neg)
         {
             var member = MemberAccess.Find(container.GetType(), b.MemberPath[depth]);
             if (member == null || !(member is FieldInfo || member is PropertyInfo))
@@ -111,13 +109,13 @@ namespace DominusMultipliers
             object newValue;
             if (depth == b.MemberPath.Length - 1)
             {
-                newValue = Numeric.Scale(value, m, onlyPositive);
+                newValue = Numeric.Scale(value, pos, neg);
                 if (newValue == null) return container;
-                Trace(b, value, newValue, m);
+                Trace(b, value, newValue);
             }
             else
             {
-                newValue = ScalePath(b, value, depth + 1, m, onlyPositive);
+                newValue = ScalePath(b, value, depth + 1, pos, neg);
                 if (!value.GetType().IsValueType) return container; // reference type was modified in place
             }
             if (MemberAccess.CanSet(member)) MemberAccess.Set(member, container, newValue);
@@ -125,44 +123,51 @@ namespace DominusMultipliers
         }
 
         // ---- multipliers ----
-        private static bool OnlyPositive(Category c) =>
-            c == Category.Money ? Mod.Cfg.MoneyOnlyGains.Value :
-            c == Category.Training ? Mod.Cfg.TrainingOnlyGains.Value : true; // negative "damage" is usually healing
-
-        private static double? Multiplier(Binding b, object instance, object[] args)
+        /// <summary>
+        /// Works out the multiplier for positive values (<paramref name="pos"/>) and negative values (<paramref name="neg"/>);
+        /// null means "leave alone". Returns false if nothing should be scaled at all.
+        /// </summary>
+        private static bool Multipliers(Binding b, object instance, object[] args, out double? pos, out double? neg)
         {
             var cfg = Mod.Cfg;
-            double m;
-            switch (b.Category)
+            var def = b.Def;
+            pos = neg = null;
+
+            object subject = b.SideParam >= 0 ? args[b.SideParam] : b.Method.IsStatic ? null : instance;
+            bool? player = SideResolver.IsPlayer(subject, warnIfUnknown: def.Side != SideMode.PlayerSupport);
+            if (player == null)
             {
-                case Category.Money: m = cfg.MoneyMultiplier.Value; break;
-                case Category.Training: m = cfg.TrainingMultiplier.Value; break;
-                default:
-                {
-                    var receiver = b.SideParam >= 0 ? args[b.SideParam] : instance;
-                    bool? player = SideResolver.IsPlayer(receiver);
-                    if (player == null)
-                    {
-                        switch (cfg.UnknownSide.Value)
-                        {
-                            case UnknownSideMode.TreatAsPlayer: player = true; break;
-                            case UnknownSideMode.TreatAsEnemy: player = false; break;
-                            default: return null;
-                        }
-                    }
-                    m = player.Value ? 1.0 / Math.Max(0.01, cfg.DefenseMultiplier.Value) : cfg.DamageMultiplier.Value;
-                    break;
-                }
+                var mode = def.Side == SideMode.PlayerSupport ? cfg.UnknownSideOther.Value : cfg.UnknownSide.Value;
+                if (mode == UnknownSideMode.Skip) return false;
+                player = mode == UnknownSideMode.TreatAsPlayer;
             }
-            return Math.Abs(m - 1.0) < 1e-6 ? (double?)null : m;
+
+            double m = def.Multiplier.Value;
+            switch (def.Side)
+            {
+                case SideMode.Combat:
+                    // Damage received: enemies take more, you take less. Negative "damage" (healing) is left alone.
+                    pos = player.Value ? 1.0 / Math.Max(0.01, cfg.DefenseMultiplier.Value) : m;
+                    break;
+                default:
+                    if (!player.Value) return false; // never boost a rival's values
+                    pos = m;
+                    if (def.Id == Category.Money) neg = cfg[Category.Cost].Multiplier.Value; // AddGold(-price) is a cost
+                    else if (def.OnlyGains != null && !def.OnlyGains.Value) neg = m;
+                    break;
+            }
+
+            if (pos != null && Math.Abs(pos.Value - 1.0) < 1e-6) pos = null;
+            if (neg != null && Math.Abs(neg.Value - 1.0) < 1e-6) neg = null;
+            return pos != null || neg != null;
         }
 
         // ---- diagnostics ----
-        private static void Trace(Binding b, object before, object after, double m)
+        private static void Trace(Binding b, object before, object after)
         {
             if (!Mod.Cfg.LogScaledCalls.Value || b.LoggedCalls >= 5) return;
             b.LoggedCalls++;
-            Mod.Log.LogInfo($"[{b.Category}] {b.Method.DeclaringType?.Name}.{b.Method.Name}: {before} -> {after} (x{m:0.###})");
+            Mod.Log.LogInfo($"[{b.Category}] {b.Method.DeclaringType?.Name}.{b.Method.Name}: {before} -> {after}");
         }
 
         private static void ReportError(Binding b, Exception e)

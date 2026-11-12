@@ -11,7 +11,7 @@ namespace DominusMultipliers
     {
         public const string Guid = "dominus.multipliers";
         public const string Name = "Dominus Multipliers";
-        public const string Version = "1.0.0";
+        public const string Version = "1.1.0";
 
         internal static ManualLogSource Log;
         internal static ModConfig Cfg;
@@ -26,9 +26,10 @@ namespace DominusMultipliers
             assemblies = assemblies ?? GameAssemblies.Load(Cfg.Assemblies.Value);
             int patched = Patcher.PatchAll(harmony, assemblies);
 
-            Log.LogInfo($"{Name} {Version}: hooked {patched} method(s). " +
-                        $"Money x{Cfg.MoneyMultiplier.Value}, Damage x{Cfg.DamageMultiplier.Value}, " +
-                        $"Defense x{Cfg.DefenseMultiplier.Value}, Training x{Cfg.TrainingMultiplier.Value}");
+            var summary = new List<string>();
+            foreach (var c in Cfg.Categories) summary.Add($"{c.Name} x{c.Multiplier.Value}");
+            summary.Insert(1, $"Defense x{Cfg.DefenseMultiplier.Value}");
+            Log.LogInfo($"{Name} {Version}: hooked {patched} method(s). " + string.Join(", ", summary.ToArray()));
 
             if (Cfg.WriteDump.Value)
                 Dumper.Write(assemblies);
