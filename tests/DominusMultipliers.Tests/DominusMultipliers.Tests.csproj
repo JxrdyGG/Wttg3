@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Runs the mod's hooking logic against a fake "game" (FakeGame.cs) outside Unity: dotnet run -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <AssemblyName>GladTest</AssemblyName>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <BepInExCore Condition="'$(BepInExCore)' == ''">$(MSBuildThisFileDirectory)../../lib/BepInEx6-IL2CPP/BepInEx/core</BepInExCore>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../src/DominusMultipliers/**/*.cs" Exclude="../../src/DominusMultipliers/Plugin.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <Reference Include="BepInEx.Core"><HintPath>$(BepInExCore)/BepInEx.Core.dll</HintPath></Reference>
+    <PackageReference Include="HarmonyX" Version="2.16.1" />
+  </ItemGroup>
+</Project>
